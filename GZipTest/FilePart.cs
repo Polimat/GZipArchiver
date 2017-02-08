@@ -1,13 +1,10 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Text;
 
 namespace GZipTest
 {
     
-    public class FilePart
+    public class FilePart: IDisposable
     {
         /// <summary>
         /// Архивированный кусок
@@ -33,5 +30,10 @@ namespace GZipTest
         public long Index { get; private set; }
         public Stream Stream { get; private set; }
         public long Blocks { get; private set; }
+
+        public void Dispose()
+        {
+            Stream.Dispose();
+        }       
     }
 }

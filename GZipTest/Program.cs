@@ -33,21 +33,14 @@ namespace GZipTest
             readKeyThread.Start();
             while (true)
             {
-                lock (archivator.ResultLock)
-                {
-                    if (archivator.ErrorOccured || archivator.WorkCompleted) break;
-                }
-                if (_abort)
-                {
-                    archivator.Abort = true;
-                    break;
-                }
-                
+                if (archivator.ErrorOccured || archivator.WorkCompleted) break;
+                if (!_abort) continue;
+                archivator.Abort = true;
+                break;
             }
-            lock (archivator.ResultLock)
-            {
-                return archivator.WorkCompleted ? 1 : 0;
-            }
+            Console.ReadKey();
+            return archivator.WorkCompleted ? 1 : 0;
+            
         }
 
 

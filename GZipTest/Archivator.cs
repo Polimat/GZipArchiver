@@ -236,59 +236,96 @@ namespace GZipTest
         {
             try
             {
-                long availableBlocks;
-                lock (_blocksLock)
+                using (var fileStream = new FileStream(SrcFile, FileMode.Open, FileAccess.Read, FileShare.Read))
                 {
-                    availableBlocks = _maxBlocks - (2 * _readedBlocks - _processedBlocks - _writedBlocks); // количество доступных блоков оперативной памяти
-                    if (availableBlocks <= 2) continue;
-                    _numBlocks *= 2;
-                }
-                if (_numBlocks * _blockSize > _maxBufferSize) _numBlocks = _maxBufferSize / _blockSize;
-                if (2 * _numBlocks > availableBlocks) _numBlocks = (int)availableBlocks / 2;
-                var bufferSize = _numBlocks * _blockSize;
+                    bool readEnd = false;
+                    while (!readEnd)
+                    {
+                        lock (_readEndLock)
+                        {
+                            if (_readEnded)
+                            {
+                                readEnd = true;
+                                continue;
+                            }
+                            
+                        }
+                        lock (ResultLock)
+                        {
+                            if (ErrorOccured || Abort || WorkCompleted)
+                            {
+                                readEnd = true;
+                                continue;
+                            }
+                        }
+                        int bufferSize = 0;
+                        lock (_blocksLock)
+                        {
+                            if (availableBlocks <= 2) continue;
+                            if (2*_numBlocks > availableBlocks) _numBlocks = availableBlocks/2;
+                            if (_numBlocks*_blockSize > _maxBufferSize) _numBlocks = _maxBufferSize/_blockSize;
+                            bufferSize = _numBlocks * _blockSize;
+                            if (bufferSize > fileStream.Length - _currenPosition)
+                                bufferSize = (int)(fileStream.Length - _currenPosition);
+                            _currenPosition = _currenPosition + bufferSize;
+                        }
 
-                if (bufferSize > fileStream.Length - fileStream.Position)
-                    bufferSize = (int)(fileStream.Length - fileStream.Position);
-                var byteArray = new byte[bufferSize];
-                count = fileStream.Read(byteArray, 0, bufferSize);
-                if (count == 0) break;
-                var thread = new Thread(CompressPart) { Name = "thread" + _partsNumber };
-                lock (_threads)
-                {
-                    _threads.Add(thread);
-                }
-                _readedBlocks += _numBlocks;
-                thread.Start(new FilePart(_partsNumber, new MemoryStream(byteArray), _numBlocks));
-                _partsNumber++;
-                if (Abort || ErrorOccured) return;
+                    }
+                    lock (_blocksLock)
+                    {
+                        availableBlocks = _maxBlocks - (2*_readedBlocks - _processedBlocks - _writedBlocks);
+                            // количество доступных блоков оперативной памяти
+                        if (availableBlocks <= 2) continue;
+                        _numBlocks *= 2;
+                    }
+                    if (_numBlocks*_blockSize > _maxBufferSize) _numBlocks = _maxBufferSize/_blockSize;
+                    if (2*_numBlocks > availableBlocks) _numBlocks = (int) availableBlocks/2;
+                    
+
+                    if (bufferSize > fileStream.Length - fileStream.Position)
+                        bufferSize = (int) (fileStream.Length - fileStream.Position);
+                    var byteArray = new byte[bufferSize];
+                    count = fileStream.Read(byteArray, 0, bufferSize);
+                    if (count == 0) break;
+                    var thread = new Thread(CompressPart) {Name = "thread" + _partsNumber};
+                    lock (_threads)
+                    {
+                        _threads.Add(thread);
+                    }
+                    _readedBlocks += _numBlocks;
+                    thread.Start(new FilePart(_partsNumber, new MemoryStream(byteArray), _numBlocks));
+                    _partsNumber++;
+                    if (Abort || ErrorOccured) return;
 
 
 
-                var memStream = new MemoryStream();
-                using (var zipStream = new GZipStream(memStream, CompressionMode.Compress, true))
-                {
-                    WriteFromStreamToStream(part.Stream, zipStream);
-                    part.Dispose();
+                    var memStream = new MemoryStream();
+                    using (var zipStream = new GZipStream(memStream, CompressionMode.Compress, true))
+                    {
+                        WriteFromStreamToStream(part.Stream, zipStream);
+                        part.Dispose();
+                    }
+                    lock (_queue)
+                    {
+                        _queue.Enqueue(new FilePart(part.Index, memStream, part.Blocks));
+                    }
+                    lock (_blocksLock)
+                    {
+                        _processedBlocks += part.Blocks;
+                    }
+                    lock (_threads)
+                    {
+                        var thread = _threads.FirstOrDefault(t => t.Name != null && t.Name.Equals("thread" + part.Index));
+                        _threads.Remove(thread);
+                    }
                 }
-                lock (_queue)
-                {
-                    _queue.Enqueue(new FilePart(part.Index, memStream, part.Blocks));
-                }
-                lock (_blocksLock)
-                {
-                    _processedBlocks += part.Blocks;
-                }
-                lock (_threads)
-                {
-                    var thread = _threads.FirstOrDefault(t => t.Name != null && t.Name.Equals("thread" + part.Index));
-                    _threads.Remove(thread);
-                }   
             }
             catch (Exception e)
             {
                 UnexpectedError(e);
             }
         }
+                    
 
         private void DecompressPart(object dataToDecompress)
         {
@@ -535,6 +572,7 @@ namespace GZipTest
 
         private int _blockSize = 1024*1024;
         private int _numBlocks = 1;
+        private int availableBlocks;
         private long _maxBlocks;
         private int _maxBufferSize = 1024*1024*1024; 
 
@@ -545,6 +583,6 @@ namespace GZipTest
         private object _blocksLock = new object();
 
         private FileStream _readStream;
-        private long _readStreamEndPosition;
+        private long _currenPosition;
     }
 }

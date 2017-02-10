@@ -31,14 +31,13 @@ namespace GZipTest
             thread.Start();
             var readKeyThread = new Thread(ReadKey) {IsBackground = true};
             readKeyThread.Start();
-            while (true)
+            while (!archivator.ErrorOccured && !archivator.WorkCompleted && thread.IsAlive)
             {
-                if (archivator.ErrorOccured || archivator.WorkCompleted) break;
                 if (!_abort) continue;
                 archivator.Abort = true;
                 break;
             }
-            Console.ReadKey();
+            Thread.Sleep(2000);
             return archivator.WorkCompleted ? 1 : 0;
             
         }
